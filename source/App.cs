@@ -75,7 +75,7 @@ internal sealed class MonitorContext : ApplicationContext
     readonly CheckSchedule schedule;
     readonly Stopwatch clock=Stopwatch.StartNew();
     SettingsWindow settings;
-    bool busy,closing,suspended,invalidate,currentReading;
+    bool busy,closing,suspended,invalidate,readingValid;
     public BatteryReading Reading;
     public string Status="Überwachung startet …", Error;
     public DateTime LastAttempt;
@@ -108,7 +108,7 @@ internal sealed class MonitorContext : ApplicationContext
         settings.Show(); if(settings.WindowState==FormWindowState.Minimized) settings.WindowState=FormWindowState.Normal;
         settings.Activate();
     }
-    public void DeviceChanged() { invalidate=true; currentReading=false; RefreshSettings(); }
+    public void DeviceChanged() { invalidate=true; readingValid=false; RefreshSettings(); }
     public void ReceiverChanged()
     {
         DeviceChanged(); schedule.RefreshSoon(clock.ElapsedMilliseconds); ArmTimer();
@@ -116,7 +116,12 @@ internal sealed class MonitorContext : ApplicationContext
     void ArmTimer()
     {
         if(closing || suspended || busy) return;
-        timer.Stop(); timer.Interval=schedule.TimerDelay(clock.ElapsedMilliseconds); timer.Start();
+        long now=clock.ElapsedMilliseconds;
+        int delay=schedule.TimerDelay(now);
+        // Reuse the timer to redraw at the freshness boundary, including while paused.
+        if(Reading!=null && readingValid && now<=schedule.NextDueMilliseconds+5000)
+            delay=(int)Math.Min(delay,Math.Max(1,schedule.NextDueMilliseconds+5001-now));
+        timer.Stop(); timer.Interval=delay; timer.Start();
     }
     void OnTimer()
     {
@@ -125,9 +130,10 @@ internal sealed class MonitorContext : ApplicationContext
         var decision=schedule.Evaluate(clock.ElapsedMilliseconds,Idle);
         if(decision==CheckDecision.Poll) { Poll(false); return; }
         if(decision==CheckDecision.Paused) {
-            currentReading=false; Status="Pausiert: seit 5 Minuten keine Eingabe. Nach Nutzung Fortsetzung binnen 30 Sekunden.";
+            Status="Pausiert: seit 5 Minuten keine Eingabe. Nach Nutzung Fortsetzung binnen 30 Sekunden.";
             RefreshSettings();
         }
+        else RefreshTray();
         ArmTimer();
     }
     public string NextCheck {
@@ -144,6 +150,7 @@ internal sealed class MonitorContext : ApplicationContext
             "\r\nLetzter Versuch: "+(attempts==0?"keiner":LastAttempt.ToString("O"))+
             "\r\nLetzte erfolgreiche Messung: "+(Reading==null?"keine":Reading.Time.ToString("O"))+
             "\r\nAkku: "+(Reading==null?"unbekannt":Reading.Percent+" %")+
+            "\r\nMesswert aktuell: "+TrayView.IsReadingCurrent(Reading,readingValid,clock.ElapsedMilliseconds,schedule.NextDueMilliseconds)+
             "\r\nNächste Prüfung: "+NextCheck+"\r\nPausiert: "+schedule.Paused+
             "\r\nBeschäftigt: "+busy+"\r\nVersuche: "+attempts+"\r\nErfolgreich: "+successes+"\r\n";
     }
@@ -163,20 +170,20 @@ internal sealed class MonitorContext : ApplicationContext
     {
         suspended=sleep; invalidate=true;
         timer.Stop();
-        currentReading=false; RefreshSettings();
+        RefreshSettings();
         if(!sleep) { schedule.RefreshSoon(clock.ElapsedMilliseconds); ArmTimer(); }
     }
     public async void Poll(bool manual)
     {
         if(busy || closing || suspended) return;
-        if(!manual && Idle) { schedule.Evaluate(clock.ElapsedMilliseconds,true); currentReading=false; Status="Pausiert: seit 5 Minuten keine Eingabe."; RefreshSettings(); ArmTimer(); return; }
+        if(!manual && Idle) { schedule.Evaluate(clock.ElapsedMilliseconds,true); Status="Pausiert: seit 5 Minuten keine Eingabe."; RefreshSettings(); ArmTimer(); return; }
         timer.Stop(); busy=true; attempts++; LastAttempt=DateTime.Now; Status="Akkustand wird geprüft …"; RefreshSettings();
         bool reset=invalidate; invalidate=false;
         bool successful=false;
         try {
             var result=await Task.Run(()=> { if(reset) reader.Invalidate(); return reader.Poll(); });
             if(closing) return;
-            Reading=result; currentReading=!suspended && !invalidate; successful=true; successes++; Status=(result.Charging?"Maus lädt. ":"Überwachung aktiv. ")+"Prüfintervall: "+PollIntervalMinutes+(PollIntervalMinutes==1?" Minute.":" Minuten.");
+            Reading=result; readingValid=!invalidate; successful=true; successes++; Status=(result.Charging?"Maus lädt. ":"Überwachung aktiv. ")+"Prüfintervall: "+PollIntervalMinutes+(PollIntervalMinutes==1?" Minute.":" Minuten.");
             int oldMask=warnings.Mask;
             int? warning=warnings.Evaluate(result.Percent,result.Charging);
             if(warning.HasValue) {
@@ -184,7 +191,7 @@ internal sealed class MonitorContext : ApplicationContext
                 if(notifications.Show(title,"Deine Keychron M6 meldet "+result.Percent+" % Akku. Bitte laden.",false)) warnings.MarkDelivered(result.Percent);
             }
             if(oldMask!=warnings.Mask) { saved.WarningMask=warnings.Mask; Storage.Save(saved); }
-        } catch(Exception ex) { currentReading=false; Status=ex.Message; }
+        } catch(Exception ex) { readingValid=false; Status=ex.Message; }
         finally {
             busy=false;
             if(!closing) {
@@ -201,7 +208,7 @@ internal sealed class MonitorContext : ApplicationContext
         RefreshSettings();
     }
     public string NotificationError { get { return notifications.LastError; } }
-    void RefreshTray() { if(!closing && tray!=null) tray.Update(Reading,currentReading,busy,PollIntervalMinutes); }
+    void RefreshTray() { if(!closing && tray!=null) tray.Update(Reading,readingValid,busy,PollIntervalMinutes,clock.ElapsedMilliseconds,schedule.NextDueMilliseconds,(schedule.Paused || suspended) && !busy); }
     void RefreshSettings() { RefreshTray(); if(settings!=null && !settings.IsDisposed) settings.UpdateStatus(); }
     public void Stop() { ExitThread(); }
     protected override void ExitThreadCore()

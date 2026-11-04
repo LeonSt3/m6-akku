@@ -82,6 +82,25 @@ internal static class Tests
         Check(schedule.Evaluate(519999,false)==CheckDecision.Wait && schedule.Evaluate(520000,false)==CheckDecision.Poll,"reguläre Folgeprüfung am Termin");
         Check(!CheckSchedule.IsReceiverEvent("hid#vid_1234&pid_5678") && !CheckSchedule.IsReceiverEvent(null),"andere Geräte ändern Messstatus nicht");
         Check(CheckSchedule.IsReceiverEvent("\\\\?\\HID#VID_3434&PID_D030&MI_01"),"Keychron-Empfängerereignis erkannt");
+        var freshness=new CheckSchedule(10,0);
+        freshness.Completed(0,true);
+        var lastReading=new BatteryReading { Percent=100,Charging=true,Time=new DateTime(2026,1,1,12,0,0) };
+        Check(freshness.Evaluate(300000,true)==CheckDecision.Paused && TrayView.IsReadingCurrent(lastReading,true,300000,freshness.NextDueMilliseconds),"Inaktivität vor Prüftermin behält Akkufarbe");
+        Check(TrayView.IsReadingCurrent(lastReading,true,605000,freshness.NextDueMilliseconds),"Messwert bis einschließlich fünf Sekunden Toleranz aktuell");
+        Check(!TrayView.IsReadingCurrent(lastReading,true,605001,freshness.NextDueMilliseconds),"überschrittener Prüftermin macht Messwert grau");
+        freshness.SetInterval(20,500000);
+        Check(TrayView.IsReadingCurrent(lastReading,true,1600000,freshness.NextDueMilliseconds),"verlängertes Intervall gilt ab Änderung statt ab Messzeit");
+        Check(!TrayView.IsReadingCurrent(lastReading,true,1705001,freshness.NextDueMilliseconds),"verlängertes Intervall läuft am neuen Termin ab");
+        freshness.SetInterval(1,500000);
+        Check(TrayView.IsReadingCurrent(lastReading,true,565000,freshness.NextDueMilliseconds) && !TrayView.IsReadingCurrent(lastReading,true,565001,freshness.NextDueMilliseconds),"verkürztes Intervall verschiebt Aktualitätsgrenze");
+        Check(!TrayView.IsReadingCurrent(lastReading,false,500001,freshness.NextDueMilliseconds),"Abfrage- oder Verbindungsfehler sofort grau");
+        freshness.SetInterval(1440,500000);
+        Check(!TrayView.IsReadingCurrent(lastReading,false,500001,freshness.NextDueMilliseconds),"Intervallverlängerung hebt echten Fehler nicht auf");
+        Check(!TrayView.IsReadingCurrent(null,true,0,freshness.NextDueMilliseconds),"ohne Messung keine Akkufarbe");
+        string pausedTip=TrayView.Tooltip(lastReading,true,true);
+        Check(pausedTip.Contains("01.01. 12:00") && pausedTip.Contains("pausiert") && !pausedTip.Contains(" · alt"),"Tooltip zeigt Messzeit und Pause getrennt vom Alter");
+        string staleTip=TrayView.Tooltip(lastReading,false,true);
+        Check(staleTip.Contains(" · alt") && staleTip.Contains("pausiert") && staleTip.Length<=63,"alter pausierter Ladewert passt in Windows-Tooltip");
         return count+" Tests bestanden.\r\nWarnlogik, Statuspakete, Speicherung und Hintergrundplanung inklusive Pause, Wiederaufnahme und Fehlerwiederholung geprüft.\r\n";
     }
     static void Reject(byte[] packet,string name)

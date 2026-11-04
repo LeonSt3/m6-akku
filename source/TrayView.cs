@@ -27,16 +27,25 @@ internal sealed class TrayView : IDisposable
         tray=new NotifyIcon { ContextMenuStrip=menu,Text="M6 Akkuwächter – startet" };
         tray.DoubleClick+=(sender,args)=>openSettings();
         tray.MouseMove+=(sender,args)=>refresh();
-        Update(null,false,false,1);
+        Update(null,false,false,1,0,1000,false);
         tray.Visible=true;
     }
-    public void Update(BatteryReading reading,bool current,bool busy,int intervalMinutes)
+    internal static bool IsReadingCurrent(BatteryReading reading,bool valid,long now,long nextDue)
     {
-        if(reading!=null && DateTime.Now-reading.Time>TimeSpan.FromMinutes(intervalMinutes).Add(TimeSpan.FromSeconds(5))) current=false;
+        return reading!=null && valid && now<=nextDue+5000;
+    }
+    internal static string Tooltip(BatteryReading reading,bool current,bool paused)
+    {
+        string tip=reading==null?"M6: noch kein Messwert":"M6: zuletzt "+reading.Percent+" %"+(reading.Charging?" (lädt)":"")+"\n"+reading.Time.ToString("dd.MM. HH:mm")+(current?"":" · alt");
+        return tip+(paused?" · pausiert":"");
+    }
+    public void Update(BatteryReading reading,bool valid,bool busy,int intervalMinutes,long now,long nextDue,bool paused)
+    {
+        bool current=IsReadingCurrent(reading,valid,now,nextDue);
         string suffix=current?"":" · älterer Wert";
-        battery.Text=reading==null?"Noch kein Akkustand":"Zuletzt: "+reading.Percent+" %"+(reading.Charging?" · lädt":"")+suffix;
+        battery.Text=(reading==null?"Noch kein Akkustand":"Zuletzt: "+reading.Percent+" %"+(reading.Charging?" · lädt":"")+suffix)+(paused?" · pausiert":"");
         time.Text=reading==null?"Prüfintervall: "+intervalMinutes+" Min.":"Gemessen: "+reading.Time.ToString("dd.MM.yyyy HH:mm:ss");
-        string tip=reading==null?"M6: noch kein Messwert":"M6: zuletzt "+reading.Percent+" %"+(reading.Charging?" (lädt)":"")+"\n"+reading.Time.ToString("dd.MM. HH:mm")+suffix;
+        string tip=Tooltip(reading,current,paused);
         if(tray.Text!=tip) tray.Text=tip;
         check.Enabled=!busy;
         string key=reading==null || !current?"unknown":reading.Charging?"charging":reading.Percent<=10?"low":reading.Percent<=30?"medium":"normal";

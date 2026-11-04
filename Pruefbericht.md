@@ -1,6 +1,14 @@
-# Prüfbericht – M6 Akkuwächter 1.3
+# Prüfbericht – M6 Akkuwächter 1.4
 
-Stand: 31.10.2026, Europe/Berlin. Windows x64 auf dem Rechner des Nutzers.
+Stand: 04.11.2026, Europe/Berlin. Windows x64 auf dem Rechner des Nutzers.
+
+## Tray-Korrektur 1.4
+
+- Messwertgültigkeit ist von einer Inaktivitätspause getrennt. Eine Pause allein ändert die Akkufarbe nicht. Tooltip und Menü zeigen zusätzlich „pausiert“.
+- Die Aktualitätsgrenze folgt dem monoton geplanten nächsten Prüftermin plus fünf Sekunden. Verlängern und Verkürzen des Intervalls gelten für diese Grenze sofort. Der bestehende Timer zeichnet auch nach Ablauf der Toleranz neu, ohne zusätzlichen Timer oder zusätzliche USB-Abfrage.
+- Abfragefehler und Empfängertrennung bleiben sofort grau und werden durch Intervalländerungen nicht aufgehoben.
+- **57 Tests bestanden**, darunter elf neue Assertions zu Pause, Prüftermin, exakter Toleranzgrenze, Intervallverlängerung und -verkürzung, anhaltenden Fehlern, fehlenden Messwerten und Tooltip einschließlich Windows-Längenbegrenzung.
+- Live-Start der neuen Version am 04.11.2026: Hintergrundabfrage lieferte um 19:07:23 **88 %**, Diagnose meldete „Messwert aktuell: True“. Zeitgrenzen und Pause wurden mit simulierten Zeitwerten getestet; ein physischer Verbindungsausfall wurde für diese Änderung nicht erzeugt.
 
 ## Hintergrundkorrektur 1.3
 
