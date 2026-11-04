@@ -1,0 +1,17 @@
+# Build outputs
+*.exe
+*.pdb
+*.zip
+bin/
+obj/
+
+# Local settings and diagnostic output
+state.xml
+*.tmp
+*-status.txt
+diagnose.txt
+tests.txt
+
+# Editor files
+.vs/
+.vscode/
